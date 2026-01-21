@@ -4,13 +4,7 @@ joblib
 Pillow
 reportlab
 PyPDF2
-numpy
-streamlit
-pandas
-joblib
-Pillow
-reportlab
-PyPDF2
+lightgbm
 scikit-learn
 xgboost
 numpy
