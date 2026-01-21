@@ -120,16 +120,14 @@
 #         st.success("🟢 **SIN RIESGO** según el modelo. Mantén hábitos saludables.")
 
 
-
-#------- Versión corregida ---------
 # app.py
 import streamlit as st
 import pandas as pd
 import json
 import io
 import joblib
+import sys
 from pathlib import Path
-from preprocessing_utils import preprocess_with_schema
 from PIL import Image
 from streamlit import session_state as ss  
 from reportlab.lib.pagesizes import letter
@@ -142,29 +140,44 @@ from reportlab.platypus import (
 from reportlab.lib.styles import getSampleStyleSheet
 from PyPDF2 import PdfReader, PdfWriter
 
-# ⚠️ Fix: definir preproc_fn aquí para que joblib lo encuentre
-def preproc_fn(X, feature_schema=None):
-    return preprocess_with_schema(X, feature_schema=feature_schema)
-
+# =========================================================
+# 1. CONFIGURACIÓN Y HACK DE COMPATIBILIDAD (DEBE IR PRIMERO)
+# =========================================================
 st.set_page_config(page_title="CardioTech | RCV", layout="wide")
 
+# Importar utilidades y registrarlas para que joblib las encuentre
+import preprocessing_utils
+sys.modules['preprocessing_utils'] = preprocessing_utils
+from preprocessing_utils import preprocess_with_schema, preproc_fn
+
+# Registrar en el main para máxima compatibilidad con el pickle
+import __main__
+__main__.preproc_fn = preproc_fn
+__main__.preprocess_with_schema = preprocess_with_schema
+
 # ================================
-# Cargar artefactos del modelo
+# 2. CARGAR ARTEFACTOS DEL MODELO
 # ================================
 ART = Path("artefactos_rcv_simple_2")
 
-# Pipeline de inferencia (preproc + modelo entrenado)
-pipe = joblib.load(ART / "pipeline_modelo_2_inference.joblib")
+@st.cache_resource
+def load_model_assets():
+    # Cargamos el pipeline (ahora sí encontrará las referencias)
+    model = joblib.load(ART / "pipeline_modelo_2_inference.joblib")
+    
+    # Cargamos el umbral
+    threshold = float((ART / "threshold_fijo_2.txt").read_text().strip())
+    
+    # Cargamos el esquema
+    with open(ART / "feature_schema.json") as f:
+        schema = json.load(f)
+    
+    return model, threshold, schema
 
-# Umbral fijo
-BEST_THRESHOLD = float((ART / "threshold_fijo_2.txt").read_text().strip())
-
-# Feature schema usado en entrenamiento
-with open(ART / "feature_schema.json") as f:
-    FEATURE_SCHEMA = json.load(f)
+pipe, BEST_THRESHOLD, FEATURE_SCHEMA = load_model_assets()
 
 # ================================
-# Encabezado
+# 3. ENCABEZADO Y UI
 # ================================
 st.title("CardioTech | Calculadora de Riesgo Cardiovascular")
 st.caption("Modelo de machine learning para estimar probabilidad de riesgo cardiovascular.")
@@ -178,12 +191,12 @@ try:
     with open("MODELORCV2.mp4", "rb") as video_file:
         col1, col2, col3 = st.columns([1, 4, 1])
         with col2:
-            st.video(video_file.read(), autoplay=True, loop=True, start_time=3, width=3000)
+            st.video(video_file.read(), autoplay=True, loop=True, start_time=3)
 except FileNotFoundError:
     st.info("Video no disponible.")
 
 # ================================
-# Función para generar y unir PDFs
+# 4. FUNCIONES DE APOYO (PDF)
 # ================================
 def generar_pdf_completo(datos, limites, pdf_recomendacion, logo_path="LogoCardiotechfondo.png"):
     buffer = io.BytesIO()
@@ -200,7 +213,6 @@ def generar_pdf_completo(datos, limites, pdf_recomendacion, logo_path="LogoCardi
     elements.append(title)
     elements.append(Spacer(1, 3))
 
-    # Tabla datos + límites
     cell_style = ParagraphStyle(name="cell_style", fontSize=9, alignment=1, leading=10)
     data_table = [["Variable", "Valor", "Referencia"]]
     for key, value in datos.items():
@@ -222,13 +234,10 @@ def generar_pdf_completo(datos, limites, pdf_recomendacion, logo_path="LogoCardi
         ('GRID', (0, 0), (-1, -1), 1, colors.grey)
     ]))
     elements.append(table)
-
-    # PDF datos
     doc.build(elements)
     buffer.seek(0)
+    
     pdf_datos = PdfReader(buffer)
-
-    # Unir con PDF recomendaciones
     with open(pdf_recomendacion, "rb") as f:
         pdf_reco = PdfReader(f)
         writer = PdfWriter()
@@ -240,11 +249,10 @@ def generar_pdf_completo(datos, limites, pdf_recomendacion, logo_path="LogoCardi
         output_buffer = io.BytesIO()
         writer.write(output_buffer)
         output_buffer.seek(0)
-
     return output_buffer
 
 # ================================
-# Formulario
+# 5. FORMULARIO Y LÓGICA
 # ================================
 with st.form("rcv"):
     nombre = st.text_input("Nombre")
@@ -270,56 +278,40 @@ with st.form("rcv"):
     antecedente_fam = st.selectbox("¿Antecedentes familiares de Enfermedad Cardiovascular?", ["SI","NO"])
     tipo_diagnostico = st.selectbox("Tienes alguna enfermedad Cardiaca, Renal o Diabetes diagnosticada?", ["No aplica","Cardio",'Renal/Diabetes'])
 
-    peso = st.number_input("Peso (kg)", min_value=5.0, max_value=300.0, step=5.0, format="%.1f")
-    talla = st.number_input("Talla (m)", min_value=0.50, max_value=2.5, step=0.3, format="%.1f")
-    mmusc = st.number_input("Porcentaje masa muscular (%)", min_value=10.0, max_value=60.0, step=3.0, format="%.1f")
+    peso = st.number_input("Peso (kg)", min_value=5.0, max_value=300.0, value=70.0, step=1.0)
+    talla = st.number_input("Talla (m)", min_value=0.50, max_value=2.5, value=1.70, step=0.01)
+    mmusc = st.number_input("Porcentaje masa muscular (%)", min_value=10.0, max_value=60.0, value=30.0)
+    
     imm = ((peso*mmusc)/100)/(talla*talla)
     st.caption(f"El resultado del IMM es: {imm:.2f}")
-    fat = st.number_input("Porcentaje de grasa (%)", min_value=2.0, max_value=50.0, step=5.0, format="%.1f")
+    
+    fat = st.number_input("Porcentaje de grasa (%)", min_value=2.0, max_value=50.0, value=20.0)
     imc = (peso/(talla*talla))
     st.caption(f"El resultado del IMC es: {imc:.2f}")
 
-    abd = st.number_input("Perímetro abdominal (cm)", min_value=40, max_value=250, step=1)
-    sis = st.number_input("Tensión arterial sistólica (mmHg)", min_value=80, max_value=280, step=1)
-    ses_sem = st.number_input("¿En promedio cuántos días a la semana entrenas?", min_value=0, max_value=7, step=1)
-    mean_minentr = st.number_input("¿En promedio cuántos minutos por día entrenas?", min_value=0, max_value=1440, step=1)
+    abd = st.number_input("Perímetro abdominal (cm)", min_value=40, max_value=250, value=85)
+    sis = st.number_input("Tensión arterial sistólica (mmHg)", min_value=80, max_value=280, value=120)
+    ses_sem = st.number_input("¿Días a la semana entrenas?", min_value=0, max_value=7, value=3)
+    mean_minentr = st.number_input("¿Minutos por día entrenas?", min_value=0, max_value=1440, value=60)
+    
     min_sem = (mean_minentr * ses_sem)
-    st.caption(f"Minutos de entrenamiento por semana en promedio es: {min_sem}")
+    st.caption(f"Minutos promedio por semana: {min_sem}")
 
     ok = st.form_submit_button("Calcular mi riesgo cardiovascular 🧡")
 
-# ================================
-# Procesamiento para el modelo
-# ================================
 if ok:
     fila = pd.DataFrame([{
-        'imm': imm,
-        'fat_percentage': fat,
-        'muscle_mass_percentage': mmusc,
-        'abdominal_perimeter': int(abd),
-        'tension_arte_sis': int(sis),
-        'Sedentarismo': sedentarismo,
-        'sesiones_en_la_semana': int(ses_sem),
-        'minutos_por_semana': int(min_sem),
-        'tipo_vinculacion': tipo_vinc,
-        'ocupacion_validada': ocupacion,
-        'Antecedente Familiar': antecedente_fam,
-        'imc': imc,
-        'Estrato': estrato,
-        'Tabaquismo': tabaquismo,
-        'genero_1': genero
+        'imm': imm, 'fat_percentage': fat, 'muscle_mass_percentage': mmusc,
+        'abdominal_perimeter': int(abd), 'tension_arte_sis': int(sis),
+        'Sedentarismo': sedentarismo, 'sesiones_en_la_semana': int(ses_sem),
+        'minutos_por_semana': int(min_sem), 'tipo_vinculacion': tipo_vinc,
+        'ocupacion_validada': ocupacion, 'Antecedente Familiar': antecedente_fam,
+        'imc': imc, 'Estrato': estrato, 'Tabaquismo': tabaquismo, 'genero_1': genero
     }])
 
-    # 🔹 Preprocesamiento interno del pipeline
     proba = float(pipe.predict_proba(fila)[:, 1][0])
-    y_pred = int(proba >= BEST_THRESHOLD)
 
-    # Selección de PDF
-    if tipo_diagnostico != "No aplica":
-        riesgo = "ALTO"
-        pdf_path = "pdf/alto.pdf"
-        st.error("🔴 Riesgo **ALTO** según el modelo. Consulta las recomendaciones en el PDF.")
-    elif proba >= 0.8:
+    if tipo_diagnostico != "No aplica" or proba >= 0.8:
         riesgo = "ALTO"; pdf_path = "pdf/alto.pdf"; st.error("🔴 Riesgo **ALTO**.")
     elif 0.7 <= proba < 0.8:
         riesgo = "MEDIO"; pdf_path = "pdf/medio.pdf"; st.warning("🟡 Riesgo **MEDIO**.")
@@ -328,46 +320,25 @@ if ok:
     else:
         riesgo = "SIN RIESGO"; pdf_path = "pdf/sinriesgo.pdf"; st.success("🟢 **SIN RIESGO**.")
 
-    # Datos usuario para PDF
     datos_usuario = {
-        "Nombre": nombre,
-        "Probabilidad de riesgo": f"{proba*100:.2f}%",
-        "Clasificación riesgo": riesgo,
-        "Género": genero_1,
-        "Vinculación regimen de salud": tipo_vinc_1,
-        "Nivel educativo": ocupacion_1,
-        "Estrato": str(estrato_1),
-        "Inactividad fisica": sedentarismo,
-        "Antecedente familiar": antecedente_fam,
-        "Tabaquismo": tabaquismo,
-        "Índice de masa muscular": f"{imm:.2f}",
-        "Índice de masa corporal": f"{imc:.2f}",
-        "Tensión arterial sistólica(mmHg)": int(sis),
-        "(%)Grasa": f"{fat:.2f}%",
-        "(%)Masa muscular": f"{mmusc:.2f}%",
-        "Perímetro abdominal": int(abd),
-        "Minutos de ejercicio a la semana": int(min_sem),
-        "Días de entrenamiento a la semana": int(ses_sem)
-        
+        "Nombre": nombre, "Probabilidad": f"{proba*100:.2f}%", "Clasificación": riesgo,
+        "IMM": f"{imm:.2f}", "IMC": f"{imc:.2f}", "TAS (mmHg)": int(sis),
+        "Grasa %": f"{fat:.2f}%", "Músculo %": f"{mmusc:.2f}%", "Abd (cm)": int(abd)
     }
 
     datos_limites = {
-         "Clasificación riesgo": f"Sin riesgo< 60%/ Bajo 60%-70%/ Medio 70-80%/ Alto>=80% o con diagnostico de enfermedad cardiaca,renal o diabetes",
-         "Índice de masa muscular": "Hombre:Normal >= 7,26 / Bajo < 7,26 & Mujer:Normal >= 5,45 / Bajo < 5,45",
-         "Índice de masa corporal": "Bajo peso <18.4 / Normal 18.5-24.9 / Sobrepeso 25-29.9 / Obesidad >30",
-         "(%)Grasa": "Mujer -> Bajo <=24 / Normal 24-30 / Alto>=30 &       Hombre-> Bajo <=33 / Normal 33-39 / Alto>=39",
-         "Minutos de ejercicio a la semana": "Muy activo <300 min / Activo 150-300 min / Poco Activo <150min",
-         "Perímetro abdominal": "Exceso de grasa visceral para Hombre: >94 & Mujer: >=90 ",
-         "(%)Masa muscular": "Hombre:Bajo <33% / Normal 33-39 / Alto >39  &  Mujer: Bajo <24 / Normal 24-30 / Alto >30",
-         "Tensión arterial sistólica(mmHg)": "Normal <120 / Elevada 120-129 / Hipertensión >130"
-         }
+        "Clasificación": "Sin riesgo <60% / Bajo 60-70% / Medio 70-80% / Alto >=80%",
+        "IMM": "H: >=7.26 M: >=5.45", "IMC": "Normal 18.5-24.9",
+        "TAS (mmHg)": "Normal <120"
+    }
 
-    pdf_final = generar_pdf_completo(datos_usuario, datos_limites, pdf_path)
-
-    st.download_button(
-        label="📄 Descargar reporte completo en PDF",
-        data=pdf_final,
-        file_name=f"Reporte_RCV_{nombre}.pdf",
-        mime="application/pdf"
-    )
-
+    try:
+        pdf_final = generar_pdf_completo(datos_usuario, datos_limites, pdf_path)
+        st.download_button(
+            label="📄 Descargar reporte completo en PDF",
+            data=pdf_final,
+            file_name=f"Reporte_RCV_{nombre}.pdf",
+            mime="application/pdf"
+        )
+    except Exception as e:
+        st.error(f"Error al generar el PDF: {e}")
