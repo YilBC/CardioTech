@@ -321,15 +321,35 @@ if ok:
         riesgo = "SIN RIESGO"; pdf_path = "pdf/sinriesgo.pdf"; st.success("🟢 **SIN RIESGO**.")
 
     datos_usuario = {
-        "Nombre": nombre, "Probabilidad": f"{proba*100:.2f}%", "Clasificación": riesgo,
-        "IMM": f"{imm:.2f}", "IMC": f"{imc:.2f}", "TAS (mmHg)": int(sis),
-        "Grasa %": f"{fat:.2f}%", "Músculo %": f"{mmusc:.2f}%", "Abd (cm)": int(abd)
+        "Nombre": nombre,
+        "Probabilidad de riesgo": f"{proba*100:.2f}%",
+        "Clasificación riesgo": riesgo,
+        "Género": genero_1,
+        "Vinculación regimen de salud": tipo_vinc_1,
+        "Nivel educativo": ocupacion_1,
+        "Estrato": str(estrato_1),
+        "Inactividad fisica": sedentarismo,
+        "Antecedente familiar": antecedente_fam,
+        "Tabaquismo": tabaquismo,
+        "Índice de masa muscular": f"{imm:.2f}",
+        "Índice de masa corporal": f"{imc:.2f}",
+        "Tensión arterial sistólica(mmHg)": int(sis),
+        "(%)Grasa": f"{fat:.2f}%",
+        "(%)Masa muscular": f"{mmusc:.2f}%",
+        "Perímetro abdominal": int(abd),
+        "Minutos de ejercicio a la semana": int(min_sem),
+        "Días de entrenamiento a la semana": int(ses_sem)
     }
 
     datos_limites = {
-        "Clasificación": "Sin riesgo <60% / Bajo 60-70% / Medio 70-80% / Alto >=80%",
-        "IMM": "H: >=7.26 M: >=5.45", "IMC": "Normal 18.5-24.9",
-        "TAS (mmHg)": "Normal <120"
+         "Clasificación riesgo": f"Sin riesgo< 60%/ Bajo 60%-70%/ Medio 70-80%/ Alto>=80% o con diagnostico de enfermedad cardiaca,renal o diabetes",
+         "Índice de masa muscular": "Hombre:Normal >= 7,26 / Bajo < 7,26 & Mujer:Normal >= 5,45 / Bajo < 5,45",
+         "Índice de masa corporal": "Bajo peso <18.4 / Normal 18.5-24.9 / Sobrepeso 25-29.9 / Obesidad >30",
+         "(%)Grasa": "Mujer -> Bajo <=24 / Normal 24-30 / Alto>=30 &       Hombre-> Bajo <=33 / Normal 33-39 / Alto>=39",
+         "Minutos de ejercicio a la semana": "Muy activo <300 min / Activo 150-300 min / Poco Activo <150min",
+         "Perímetro abdominal": "Exceso de grasa visceral para Hombre: >94 & Mujer: >=90 ",
+         "(%)Masa muscular": "Hombre:Bajo <33% / Normal 33-39 / Alto >39  &  Mujer: Bajo <24 / Normal 24-30 / Alto >30",
+         "Tensión arterial sistólica(mmHg)": "Normal <120 / Elevada 120-129 / Hipertensión >130"
     }
 
     try:
