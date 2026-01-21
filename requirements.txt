@@ -1,0 +1,7 @@
+streamlit
+pandas
+joblib
+Pillow
+reportlab
+PyPDF2
+numpy
