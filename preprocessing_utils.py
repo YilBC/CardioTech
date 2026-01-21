@@ -35,3 +35,7 @@ def preprocess_with_schema(X, feature_schema=None):
     Esta función debe existir a nivel de módulo para que joblib la encuentre.
     """
     return manual_preprocess(X, feature_schema=feature_schema)
+
+def preproc_fn(X, feature_schema=None):
+    """Alias para compatibilidad con el pipeline guardado"""
+    return manual_preprocess(X, feature_schema=feature_schema)
